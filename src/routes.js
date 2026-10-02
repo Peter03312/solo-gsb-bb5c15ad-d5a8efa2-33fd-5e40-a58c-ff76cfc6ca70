@@ -18,6 +18,14 @@ const {
   listSchedules,
   cancelSchedule,
 } = require('./schedule');
+const {
+  createTopicRoute,
+  previewTopicRoute,
+  getTopicRoute,
+  getPublicTopicRoute,
+  listTopicRoutes,
+  listPublicTopicRoutes,
+} = require('./topicRoute');
 const scheduler = require('./scheduler');
 
 const router = express.Router();
@@ -127,6 +135,21 @@ router.get('/api/public/versions/:no', (req, res) => {
   if (!detail) throw { status: 404, message: `版本 ${req.params.no} 不存在` };
   // 访客读取指定历史版本同样应用出处遮盖
   res.json({ version: applyRedactionToVersion(detail) });
+});
+
+// ---- 公开专题「先于」脉络路线（无口令；出处按现有规则遮盖） ----
+// 路线固定所据版本、锚点顺序与见证链；访客视图只展示路线涉及的事件与关系，
+// 并区分锚点（isAnchor）与链上中间事件（isIntermediate）。
+router.get('/api/public/routes', (req, res) => {
+  res.json({ currentVersionNo: latestVersionNo(), routes: listPublicTopicRoutes() });
+});
+
+router.get('/api/public/routes/:no', (req, res) => {
+  const no = Number(req.params.no);
+  if (!Number.isInteger(no) || no < 1) throw badRequest('路线号必须是正整数');
+  const route = getPublicTopicRoute(no);
+  if (!route) throw { status: 404, message: `脉络路线 ${req.params.no} 不存在` };
+  res.json({ route });
 });
 
 // ================= 编辑者接口 =================
@@ -456,6 +479,50 @@ router.delete('/api/editor/schedules/:no', (req, res) => {
   if (!Number.isInteger(no) || no < 1) throw badRequest('预约号必须是正整数');
   const result = cancelSchedule(no);
   res.json({ ok: true, ...result });
+});
+
+// ---- 专题「先于」脉络路线：只读预览（不落库） ----
+// 体含 versionNo、anchors（至少两个互异事件 id，按给定顺序）、title、可选 note。
+// 逐段在该版关系图上求「关系数最少、同长度按关系 ID 序列择小」的见证链；
+// 参数问题（未知/重复事件、锚点不足、标题空）→ 422 ROUTE_INVALID；
+// 有断点 → 422 ROUTE_NOT_CONNECTED（列出全部断点）；未知版本 → 404；均不保存。
+router.post('/api/editor/routes/preview', (req, res) => {
+  const body = req.body || {};
+  const route = previewTopicRoute({
+    versionNo: body.versionNo,
+    anchorsRaw: body.anchors,
+    titleRaw: body.title,
+    noteRaw: body.note,
+    editor: optionalString(body, 'editor', 200) || '匿名编辑',
+  });
+  res.json(route);
+});
+
+// ---- 建立专题脉络路线（固定版本 / 锚点顺序 / 见证链；此后草稿与新版本均不改旧路线） ----
+router.post('/api/editor/routes', (req, res) => {
+  const body = req.body || {};
+  const route = createTopicRoute({
+    versionNo: body.versionNo,
+    anchorsRaw: body.anchors,
+    titleRaw: body.title,
+    noteRaw: body.note,
+    editor: optionalString(body, 'editor', 200) || '匿名编辑',
+  });
+  res.status(201).json({ ok: true, route });
+});
+
+// 编辑者视角的路线清单（结构与公开一致）
+router.get('/api/editor/routes', (req, res) => {
+  res.json({ currentVersionNo: latestVersionNo(), routes: listTopicRoutes() });
+});
+
+// 编辑者持口令查看路线详情：快照原文，不应用出处遮盖
+router.get('/api/editor/routes/:no/raw', (req, res) => {
+  const no = Number(req.params.no);
+  if (!Number.isInteger(no) || no < 1) throw badRequest('路线号必须是正整数');
+  const route = getTopicRoute(no);
+  if (!route) throw { status: 404, message: `脉络路线 ${req.params.no} 不存在` };
+  res.json({ route });
 });
 
 module.exports = router;

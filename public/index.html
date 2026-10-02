@@ -16,6 +16,25 @@
 
   <main class="container">
     <div id="message"></div>
+
+    <div class="card" id="routeViewCard" style="display:none">
+      <h2 id="routeViewTitle">专题脉络路线</h2>
+      <p class="muted" id="routeViewMeta"></p>
+      <div id="routeViewBody"></div>
+      <p style="margin-top:10px"><a href="/" id="routeBackLink">← 返回最新年表与全部专题路线</a></p>
+    </div>
+
+    <div class="card" id="routeListCard" style="display:none">
+      <h2>专题「先于」脉络路线</h2>
+      <p class="muted">
+        路线由编辑者从某一已发布版本挑选互异事件作为<b>锚点</b>，逐段沿「先于」关系的
+        <b>有向见证链</b>（关系数最少；同长度按关系 ID 序列择小）固定而成。
+        每条路线固定所据版本、锚点顺序与见证链，之后草稿改动或发布新版均不改变旧路线。
+        下列内容只展示路线涉及的事件与关系，并区分<b>锚点</b>与<b>链上中间事件</b>；出处依现有公开遮盖规则显示。
+      </p>
+      <div id="routeList"></div>
+    </div>
+
     <div id="chronicle" class="grid2" style="display:none">
       <section>
         <div class="card">

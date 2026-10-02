@@ -18,6 +18,7 @@ Compose 默认 `SEED_DEMO=1`，首次启动会写入一组演示草稿（3 个�
 | 用途 | 地址 |
 | --- --- | --- |
 | 访客年表（只读最新已发布版本） | http://localhost:3000/ |
+| 公开专题脉络路线 | http://localhost:3000/?route=1（路线号见页面清单或 `/api/public/routes`） |
 | 编辑者工作台 | http://localhost:3000/editor |
 | 最新发布快照 JSON | http://localhost:3000/api/public/chronicle |
 
@@ -264,6 +265,54 @@ curl -s -X DELETE -H "X-Editor-Token: $TOKEN" "$BASE/api/editor/schedules/1"  # 
 
    完整可运行的调用示例见 `examples/redaction-example.sh`（自动建草稿、发布两版、预览、确认、核对访客视图与原文视图）。
 
+### 专题「先于」脉络路线（从已发布版本固定公开的见证路线）
+
+编辑者可从**某一份已发布年表**中挑选**至少两个互异事件**作为**锚点**，填写**专题标题**并给出**事件顺序**，形成一条可公开的「先于」脉络路线：
+
+- **见证链的选取**：相邻两个锚点必须在**该版关系图**中存在沿「先于」方向的**有向路径**。系统为每段固定一条**关系数最少**的见证链；关系数相同时，按**关系 ID 序列字典序择小**（平行边也稳定择一）。
+- **无法连通即整路拒绝**：任一段在该版不可达（方向相反也算不通）时返回 **422 `ROUTE_NOT_CONNECTED`**，并在 `breaks` 中**逐一指出断点**（第几段、从哪个事件到哪个事件），**整条路线不保存**。
+- **参数错误不落库**：未知版本 → **404**；事件不属于该版（`unknown_event`）、锚点重复（`duplicate_event`）→ **422 `ROUTE_INVALID`**（一次性列出全部问题）；锚点少于两个、锚点不是整数、标题为空等 → **400 / 422**。
+- **建立即固定、此后不可变**：路线只固定**所据版本号、锚点顺序与每段见证链**（不复制快照、不另存出处），读出时从该版不可变快照渲染。因此之后**修改草稿、从历史版本恢复草稿、发布新版都不会改变任何旧路线**；路线也不依赖草稿 id 是否还存在。
+- **访客视角**：`/?route=N` 只展示**该路线涉及的事件与关系**，并明确区分**锚点**（`isAnchor`，附其在锚点序列中的位置 `anchorPositions`）与**链上的中间事件**（`isIntermediate`）；逐段展示见证链与关系 ID 序列。事件主张出处与关系出处**按现有公开遮盖规则**显示（命中登记文本即「出处已遮盖」）。
+- **编辑者视角**：在工作台「专题『先于』脉络路线」卡片中选择所据版本、按序加入锚点、先**只读预览**见证链再确认建立；也可打开任一路线的**快照原文**视图（持口令，不应用遮盖）。
+
+```bash
+TOKEN=editor
+BASE=http://localhost:3000
+# 1) 只读预览（不落库）：在第 2 版上按 [事件1 → 事件5 → 事件3] 的顺序逐段求最短见证链
+curl -s -X POST "$BASE/api/editor/routes/preview" \
+  -H "Content-Type: application/json" -H "X-Editor-Token: $TOKEN" \
+  -d '{"versionNo":2,"anchors":[1,5,3],"title":"从修渠动员到机械灌溉","note":"纪念专题","editor":"志愿者小王"}'
+# => {"ok":true,"title":"…","versionNo":2,"anchors":[1,5,3],
+#     "segments":[{"index":0,"fromEventId":1,"toEventId":5,
+#                  "eventIds":[1,2,5],"relationIds":[7,9],"relationCount":2}, …],
+#     "events":[…仅路线涉及；isAnchor/isIntermediate 标注角色…],
+#     "relations":[…仅路线涉及的关系…]}
+
+# 2) 确认建立（参数同预览；固定版本/锚点/见证链）
+curl -s -X POST "$BASE/api/editor/routes" \
+  -H "Content-Type: application/json" -H "X-Editor-Token: $TOKEN" \
+  -d '{"versionNo":2,"anchors":[1,5,3],"title":"从修渠动员到机械灌溉"}'
+# => 201 {"ok":true,"route":{"routeNo":1,"versionNo":2,"title":"…", ...}}
+
+# 3) 访客视图（无口令；出处按遮盖规则显示，只含路线涉及内容）
+curl -s "$BASE/api/public/routes"          # 公开路线清单（路线号/标题/所据版本/锚点标题）
+curl -s "$BASE/api/public/routes/1"        # 路线详情（遮盖后；锚点 vs 中间事件）
+#    浏览器：http://localhost:3000/?route=1
+
+# 4) 持原口令查看该路线快照原文（不遮盖）
+curl -s -H "X-Editor-Token: $TOKEN" "$BASE/api/editor/routes/1/raw"
+
+# 5) 不可达 → 422 整路拒绝并指出断点（不落库）
+curl -s -X POST "$BASE/api/editor/routes" \
+  -H "Content-Type: application/json" -H "X-Editor-Token: $TOKEN" \
+  -d '{"versionNo":2,"anchors":[5,1],"title":"反向专题"}'
+# => 422 {"code":"ROUTE_NOT_CONNECTED","breaks":[{"segmentIndex":0,
+#        "fromEventId":5,"toEventId":1,"message":"第 1 段断点：…不存在有向「先于」路径"}]}
+```
+
+完整可运行示例见 `examples/topic-route-example.sh`（自动建含直边与等长支路的图、发布、预览择链、建立、核对访客/原文视图、遮盖、404/422 错误形态、再发新版验证旧路线不变）。
+
 ### 两名编辑者并发修改（版本冲突）
 
 发布请求必须带 `baseVersionNo`（编辑台打开时自动记录当前最新版本号）。若两名编辑者都从第 N 版开始改，第一人发布产生第 N+1 版后，第二人仍以 `baseVersionNo=N` 提交时：
@@ -276,7 +325,9 @@ curl -s -X DELETE -H "X-Editor-Token: $TOKEN" "$BASE/api/editor/schedules/1"  # 
 
 只渲染最新已发布版本：按系统确定的日期排列的时间线、每条事件所选主张的精度与出处、全部「先于」关系及其出处。草稿、未发布主张、未发布关系均不出现在任何公开接口中。尚无发布版本时仅显示「尚未发布」。
 
-凡编辑者已按出处原文登记遮盖的位置，访客在最新年表与任一历史版本中都只看到 **「出处已遮盖」**（快照原文仍在库中，仅持编辑口令的接口可查看）。
+首页还列出全部**公开专题脉络路线**；打开 `/?route=N` 时只展示第 N 号路线**涉及的事件与关系**：逐段「先于」见证链（关系数最少、同长度按关系 ID 序列择小）、事件按在链上的角色标注**锚点**（并标明是第几个锚点）或**链上中间事件**，不渲染年表其余部分。
+
+凡编辑者已按出处原文登记遮盖的位置，访客在最新年表、任一历史版本以及任一专题路线中都只看到 **「出处已遮盖」**（快照原文仍在库中，仅持编辑口令的接口可查看）。
 
 ## 数据与备份
 
@@ -286,6 +337,7 @@ curl -s -X DELETE -H "X-Editor-Token: $TOKEN" "$BASE/api/editor/schedules/1"  # 
 - 导入批次表 `import_batches` 记录每次成功导入的批次标识与内容指纹，用于防止同一批次重复导入。
 - 出处遮盖表 `source_redactions` 同样只追加：只存被遮盖的精确出处文本，**不回写快照或草稿**；删除该表对应行即恢复公开显示。
 - 预约发布表 `publish_schedules` 在建立时冻结完整待发布内容（事件 / 所选主张 / 关系 / 求解日期）与基准版本号；`status` 在待执行（`pending`）、已发布（`published`）、冲突（`conflict`）、已取消（`cancelled`）间单向流转。到期写版本与翻状态在同一事务内完成，重启只补跑 `pending` 行。
+- 专题脉络路线表 `topic_routes` 只追加：每行固定**所据版本号 `version_no`、锚点顺序 `anchors_json`、各段见证链 `segments_json`**（关系 id 序列），不复制快照内容；读出时从对应版本的不可变快照渲染，因此草稿增删改、恢复与再发布都不影响旧路线。删除该表行即下线对应公开路线（版本快照本身不受影响）。
 
 ## 目录结构
 
@@ -301,11 +353,12 @@ src/
   bundle.js     采访整理包导入：整包校验 + 内容指纹 + 只读预览 + 事务追加（批次防重/修订号冲突检查）
   redact.js     出处遮盖：精确出处文本的只读命中预览 + 只追加登记（版本号冲突检查）；公开读出层动态替换为「出处已遮盖」
   schedule.js   预约发布：建立时冻结快照/基准版本号；到期按时间、预约号顺序逐条事务执行（发布或标冲突，幂等不重发不留半版）；查看/取消
+  topicRoute.js 专题脉络路线：该版关系图上逐段最短有向见证链（BFS，同长按关系 ID 序列择小）；只读预览 + 只追加落库；从不可变快照渲染并动态应用遮盖
   scheduler.js  预约调度器：每秒检查到期预约，服务启动立即补跑（重启安全）
   seed.js       演示数据
-public/         访客页与编辑台（原生 HTML/CSS/JS）
-examples/       采访整理包 JSON 示例；出处遮盖、预约发布 curl 调用示例
-test/           node:test 单元与端到端测试（含成环、无解、409 冲突、草稿恢复、整理包导入、出处遮盖、预约发布/重启补跑）
+public/         访客页与编辑台（原生 HTML/CSS/JS；访客页支持 /?route=N 只看单条脉络路线）
+examples/       采访整理包 JSON 示例；出处遮盖、预约发布、专题脉络路线 curl 调用示例
+test/           node:test 单元与端到端测试（含成环、无解、409 冲突、草稿恢复、整理包导入、出处遮盖、预约发布/重启补跑、脉络路线择链/断点/不可变/遮盖）
 ```
 
 ## 主要 HTTP API
@@ -314,6 +367,8 @@ test/           node:test 单元与端到端测试（含成环、无解、409 �
 
 - `GET /api/public/chronicle` — 最新已发布版本完整快照（命中遮盖登记的 `source` 显示「出处已遮盖」）
 - `GET /api/public/versions` / `GET /api/public/versions/:no` — 版本清单 / 指定版本（指定版本同样应用遮盖）
+- `GET /api/public/routes` — 公开专题脉络路线清单（路线号、专题标题、所据版本、锚点标题、涉及事件/关系数）
+- `GET /api/public/routes/:no` — 指定脉络路线（只含路线涉及的事件与关系；事件带 `isAnchor` / `anchorPositions` / `isIntermediate` 角色；逐段 `segments` 给见证链事件与关系 ID 序列；出处应用遮盖）；不存在 404
 
 编辑（需请求头 `X-Editor-Token`）：
 
@@ -349,3 +404,9 @@ test/           node:test 单元与端到端测试（含成环、无解、409 �
 - `DELETE /api/editor/schedules/:no` — 取消尚未执行的预约（200 `{cancelled:true}`；重复取消已取消的预约幂等 200 且 `alreadyCancelled:true`）
   - 409：`{code:"SCHEDULE_NOT_CANCELLABLE", statusNow:"published"|"conflict", resultVersionNo}`（已生效不能取消）；不存在 404
 - `GET  /api/editor/versions/:no/raw` — 指定版本快照**原文**（持编辑口令，不应用遮盖；恢复草稿亦用原文）
+- `POST /api/editor/routes/preview` — 专题脉络路线只读预览；体含 `versionNo`、`anchors`（至少 2 个互异事件 id，按给定顺序）、`title`、可选 `note`/`editor`
+  - 200：`{ok:true, versionNo, title, anchors, segments:[{index, fromEventId, toEventId, eventIds, relationIds, relationCount}], events:[…仅路线涉及，带 isAnchor/isIntermediate…], relations:[…仅路线涉及…]}`（不落库）
+  - 422：`{code:"ROUTE_NOT_CONNECTED", breaks:[{segmentIndex, fromEventId, toEventId, message}]}`（相邻锚点不可达，整路拒绝，断点全部列出）；`{code:"ROUTE_INVALID", problems:[{type:"unknown_event"|"duplicate_event", eventId, message}]}`（事件不属该版 / 重复）；空标题另以 `ROUTE_INVALID` 返回；未知版本 404；锚点结构非法 / 不足两个 400
+- `POST /api/editor/routes` — 建立公开脉络路线（体同预览；只追加固定版本/锚点顺序/见证链，此后草稿改动与新版发布不改旧路线）；201 `{ok:true, route:{routeNo, ...}}`；错误形态同预览
+- `GET  /api/editor/routes` — 路线清单（编辑者视角，结构与公开一致）
+- `GET  /api/editor/routes/:no/raw` — 路线所据版本快照**原文**渲染（持口令，不应用遮盖；不存在 404）

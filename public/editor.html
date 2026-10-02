@@ -96,6 +96,45 @@
       <div id="redactMsg" style="margin-top:10px"></div>
     </div>
 
+    <div class="card">
+      <h2>专题「先于」脉络路线</h2>
+      <p class="muted">
+        从某一<b>已发布版本</b>挑选<b>至少两个互异事件</b>作锚点并填写专题标题，系统按锚点顺序逐段在
+        <b>该版关系图</b>上取一条<b>关系数最少</b>（同长度按关系 ID 序列择小）的<b>见证链</b>，
+        形成可公开的「先于」脉络。相邻锚点无法连通时会<b>拒绝整条路线并指出断点</b>；
+        未知版本 / 事件、重复事件都会报错且不保存。路线一经建立即<b>固定所据版本、锚点顺序与见证链</b>，
+        此后修改草稿、恢复草稿或发布新版均不改旧路线。访客视图只展示路线涉及的事件 / 关系，
+        并区分锚点与链上中间事件，出处按现有遮盖规则显示；本工作台可查看快照原文。
+      </p>
+      <div class="row">
+        <div class="field" style="max-width:260px">
+          <label>所据已发布版本</label>
+          <select id="routeVersion"></select>
+        </div>
+        <div class="field" style="max-width:220px">
+          <label>选择事件并按序加入锚点</label>
+          <select id="routeEventPick"></select>
+        </div>
+        <button class="secondary" id="btnRouteAddAnchor" type="button" style="padding:7px 12px">加入锚点（追加到末尾）</button>
+      </div>
+      <label style="margin-top:10px">锚点顺序（可删除后重选；至少 2 个、不得重复）</label>
+      <div id="routeAnchors" class="muted">尚未加入锚点。</div>
+      <div class="row" style="margin-top:8px">
+        <div class="field" style="max-width:320px">
+          <label>专题标题</label>
+          <input type="text" id="routeTitle" placeholder="如：从修渠动员到机械灌溉" />
+        </div>
+        <div class="field" style="max-width:320px">
+          <label>说明（可选）</label>
+          <input type="text" id="routeNote" placeholder="如：纪念日后公开的水利专题" />
+        </div>
+        <button id="btnRoutePreview" type="button" class="secondary">校验并预览见证链（只读）</button>
+      </div>
+      <div id="routeMsg" style="margin-top:10px"></div>
+      <h3 style="margin-top:14px">已建立的脉络路线（不可变）</h3>
+      <div id="routeList" class="muted">加载中…</div>
+    </div>
+
     <div class="grid2">
       <section>
         <div class="card">
@@ -195,6 +234,27 @@
     <div class="d-foot">
       <button class="secondary" id="scheduleCancelDlg" type="button">取消预约（仅未执行）</button>
       <button id="scheduleClose" type="button">关闭</button>
+    </div>
+  </dialog>
+
+  <!-- 专题脉络路线预览对话框（只读预览见证链，确认后才建立） -->
+  <dialog id="routeDialog">
+    <div class="d-head" style="background:#f3eef7;color:#5b3a85;border-color:#d8c6e8">
+      ⎇ 预览专题「先于」脉络路线
+    </div>
+    <div class="d-body" id="routeDialogBody">加载预览中…</div>
+    <div class="d-foot">
+      <button class="secondary" id="routeDlgCancel" type="button">取消</button>
+      <button id="routeDlgConfirm" type="button">确认建立并公开此路线（固定版本 / 锚点 / 见证链）</button>
+    </div>
+  </dialog>
+
+  <!-- 路线原文详情对话框（持口令，不遮盖） -->
+  <dialog id="routeRawDialog">
+    <div class="d-head">路线 <span id="routeRawNo"></span>《<span id="routeRawTitle"></span>》原文（编辑者可见，访客看到的是遮盖视图）</div>
+    <div class="d-body" id="routeRawBody">加载中…</div>
+    <div class="d-foot">
+      <button class="secondary" id="routeRawClose" type="button">关闭</button>
     </div>
   </dialog>
 

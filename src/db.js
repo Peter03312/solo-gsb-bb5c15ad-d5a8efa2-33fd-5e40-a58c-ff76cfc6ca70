@@ -171,6 +171,29 @@ CREATE TABLE IF NOT EXISTS publish_schedules (
 );
 CREATE INDEX IF NOT EXISTS idx_schedules_due
   ON publish_schedules(status, scheduled_at);
+
+-- ============ 专题「先于」脉络路线（编辑者从某已发布版本固定公开的见证路线） ============
+-- 一条路线由编辑者从某一**已发布版本**中挑选至少两个互异事件作锚点，按给定顺序连接：
+-- 相邻锚点须在该版关系图中存在有向路径，系统为每段固定一条「关系数最少、
+-- 同长度按关系 ID 序列择小」的见证链（segments_json）。
+-- 路线建立后**不可变**：不复制快照内容，而是固定 version_no / 锚点顺序 / 见证链，
+-- 读出时从该版 version_events / version_relations 渲染——此后修改草稿、恢复草稿、
+-- 发布新版本都不影响旧路线（旧版本快照本身也只追加不变）。
+-- 公开读出同样动态应用 source_redactions 遮盖；持编辑口令可取原文视图。
+-- 版本快照在正常业务中永不删除；外键 ON DELETE CASCADE 仅为测试清库方便。
+CREATE TABLE IF NOT EXISTS topic_routes (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  version_no    INTEGER NOT NULL REFERENCES versions(version_no) ON DELETE CASCADE,
+  title         TEXT NOT NULL,                            -- 专题标题
+  editor        TEXT NOT NULL DEFAULT '',
+  note          TEXT NOT NULL DEFAULT '',
+  anchors_json  TEXT NOT NULL,                            -- 固定的锚点顺序 [eventId, ...]
+  segments_json TEXT NOT NULL,                            -- 固定的各段见证链 [{index, fromEventId, toEventId, eventIds, relationIds}]
+  anchor_count   INTEGER NOT NULL,
+  event_count    INTEGER NOT NULL,                        -- 路线涉及的去重事件数
+  relation_count INTEGER NOT NULL,                        -- 路线涉及的去重关系数
+  created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
 `;
 
 let db;
