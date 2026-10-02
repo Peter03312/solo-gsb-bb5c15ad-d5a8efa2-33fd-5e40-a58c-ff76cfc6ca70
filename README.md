@@ -264,6 +264,48 @@ curl -s -X DELETE -H "X-Editor-Token: $TOKEN" "$BASE/api/editor/schedules/1"  # 
 
    完整可运行的调用示例见 `examples/redaction-example.sh`（自动建草稿、发布两版、预览、确认、核对访客视图与原文视图）。
 
+### 专题「先于」脉络路线
+
+编辑者可从一份**已发布年表**中按顺序挑选至少两个互异事件作为**锚点**，填写专题标题，形成一条可公开的脉络路线（编辑台「专题『先于』脉络路线」卡片，或直接调用 HTTP API）：
+
+- **连通要求**：相邻两个锚点必须在该版「先于」关系图中存在**有向路径**（沿 较早→较晚 方向）。每段路线展示一条**关系数最少**的见证链；长度相同时按**关系 ID 序列**字典序择小。见证链可能经过未列为锚点的**中间事件**。
+- **断点拒绝**：任何一段无法连通即**拒绝整条路线**（不落库），错误中列出全部断点（段序号与两端事件）；未知版本（404）、事件不在该版（422）、重复事件或锚点不足两个（400）同样不保存。
+- **建立即冻结**：路线把**所据版本号、锚点顺序、每段见证链**整体写入只追加的路线表。此后修改草稿、从历史版本恢复草稿、发布新版本，**都不改变旧路线**（路线展示字段读自该版不可变快照）。
+- **公开查看**：访客年表页「专题脉络路线」卡片列出全部路线；路线详情**区分锚点与链上中间事件**，且**只展示路线涉及的事件与关系**；出处按现有公开遮盖规则显示（命中登记的位置显示「出处已遮盖」）。编辑者持口令经 `GET /api/editor/routes/:no/raw` 或编辑台「查看路线」查看**原文**。
+
+```bash
+TOKEN=editor
+BASE=http://localhost:3000
+
+# 从第 2 版年表中挑 3 个锚点（按路线顺序），建立路线
+curl -s -X POST "$BASE/api/editor/routes" \
+  -H "Content-Type: application/json" -H "X-Editor-Token: $TOKEN" \
+  -d '{"title":"东干渠建设脉络","versionNo":2,
+       "anchorEventIds":[3,7,9],
+       "editor":"志愿者小王","note":"纪念日专题"}'
+# => 201 {"ok":true,"route":{"routeNo":1,"title":"东干渠建设脉络","versionNo":2,
+#        "anchors":[{"position":0,"eventId":3,...},...],
+#        "segments":[{"position":0,"fromEventId":3,"toEventId":7,
+#                     "eventIds":[3,5,7],"relationIds":[4,8]},   ← 最少关系数见证链
+#                    ...],
+#        "events":[{"eventId":3,"role":"anchor","anchorPosition":0,...,"source":"..."},
+#                  {"eventId":5,"role":"intermediate","anchorPosition":null,...}],
+#        "relations":[{"relationId":4,"earlierEventId":3,"laterEventId":5,"source":"..."}]}}
+
+# 无法连通：422，指出断点，整条不保存
+# => {"status":422,"code":"ROUTE_INVALID",
+#     "message":"路线无法连通：1 个相邻锚点之间在该版关系图中没有有向路径，整条路线未保存",
+#     "errors":[{"type":"disconnected","segmentIndex":1,"eventIds":[7,9],
+#                "message":"第 2 段断点：「…」与「…」在第 2 版的「先于」关系图中没有有向路径"}]}
+
+curl -s "$BASE/api/public/routes"                 # 路线清单（公开）
+curl -s "$BASE/api/public/routes/1"               # 路线详情（公开，出处按遮盖规则显示）
+curl -s -H "X-Editor-Token: $TOKEN" \
+     "$BASE/api/editor/routes/1/raw"              # 路线详情原文（持口令，不遮盖）
+```
+
+完整可运行的端到端示例见 `examples/route-example.sh`（建草稿发布、三锚点路线、关系 ID 择小、遮盖联动、改草稿发新版验证路线不变、各类 400/404/422）。
+
 ### 两名编辑者并发修改（版本冲突）
 
 发布请求必须带 `baseVersionNo`（编辑台打开时自动记录当前最新版本号）。若两名编辑者都从第 N 版开始改，第一人发布产生第 N+1 版后，第二人仍以 `baseVersionNo=N` 提交时：
@@ -278,6 +320,8 @@ curl -s -X DELETE -H "X-Editor-Token: $TOKEN" "$BASE/api/editor/schedules/1"  # 
 
 凡编辑者已按出处原文登记遮盖的位置，访客在最新年表与任一历史版本中都只看到 **「出处已遮盖」**（快照原文仍在库中，仅持编辑口令的接口可查看）。
 
+页面下方「专题脉络路线」卡片列出编辑者已建立的专题路线：锚点事件按顺序排列，相邻锚点之间展示该版关系图中关系数最少的见证链（锚点与链上中间事件分别标注），只展示路线涉及的事件与关系，出处同样按遮盖规则显示。
+
 ## 数据与备份
 
 - 单文件 SQLite 数据库：容器中位于 `/app/data/chronicle.db`（Docker 卷 `chronicle-data`），本机直跑位于 `./data/chronicle.db`。
@@ -286,6 +330,7 @@ curl -s -X DELETE -H "X-Editor-Token: $TOKEN" "$BASE/api/editor/schedules/1"  # 
 - 导入批次表 `import_batches` 记录每次成功导入的批次标识与内容指纹，用于防止同一批次重复导入。
 - 出处遮盖表 `source_redactions` 同样只追加：只存被遮盖的精确出处文本，**不回写快照或草稿**；删除该表对应行即恢复公开显示。
 - 预约发布表 `publish_schedules` 在建立时冻结完整待发布内容（事件 / 所选主张 / 关系 / 求解日期）与基准版本号；`status` 在待执行（`pending`）、已发布（`published`）、冲突（`conflict`）、已取消（`cancelled`）间单向流转。到期写版本与翻状态在同一事务内完成，重启只补跑 `pending` 行。
+- 脉络路线表 `routes / route_anchors / route_segments` 同样只追加：建立时冻结所据版本号、锚点顺序与每段见证链（事件 id 序列与关系 id 序列），展示字段读自该版不可变快照，因此改草稿、恢复草稿、发新版都不影响旧路线。
 
 ## 目录结构
 
@@ -302,10 +347,11 @@ src/
   redact.js     出处遮盖：精确出处文本的只读命中预览 + 只追加登记（版本号冲突检查）；公开读出层动态替换为「出处已遮盖」
   schedule.js   预约发布：建立时冻结快照/基准版本号；到期按时间、预约号顺序逐条事务执行（发布或标冲突，幂等不重发不留半版）；查看/取消
   scheduler.js  预约调度器：每秒检查到期预约，服务启动立即补跑（重启安全）
+  route.js      专题脉络路线：锚点校验 + 分层 BFS 求最少关系见证链（同长度按关系 ID 序列择小）+ 冻结落库；公开读出层动态遮盖出处
   seed.js       演示数据
 public/         访客页与编辑台（原生 HTML/CSS/JS）
-examples/       采访整理包 JSON 示例；出处遮盖、预约发布 curl 调用示例
-test/           node:test 单元与端到端测试（含成环、无解、409 冲突、草稿恢复、整理包导入、出处遮盖、预约发布/重启补跑）
+examples/       采访整理包 JSON 示例；出处遮盖、预约发布、脉络路线 curl 调用示例
+test/           node:test 单元与端到端测试（含成环、无解、409 冲突、草稿恢复、整理包导入、出处遮盖、预约发布/重启补跑、脉络路线）
 ```
 
 ## 主要 HTTP API
@@ -314,6 +360,7 @@ test/           node:test 单元与端到端测试（含成环、无解、409 �
 
 - `GET /api/public/chronicle` — 最新已发布版本完整快照（命中遮盖登记的 `source` 显示「出处已遮盖」）
 - `GET /api/public/versions` / `GET /api/public/versions/:no` — 版本清单 / 指定版本（指定版本同样应用遮盖）
+- `GET /api/public/routes` / `GET /api/public/routes/:no` — 脉络路线清单 / 路线详情（只含路线涉及的事件与关系，锚点与中间事件以 `role` 区分，出处同样应用遮盖）
 
 编辑（需请求头 `X-Editor-Token`）：
 
@@ -349,3 +396,8 @@ test/           node:test 单元与端到端测试（含成环、无解、409 �
 - `DELETE /api/editor/schedules/:no` — 取消尚未执行的预约（200 `{cancelled:true}`；重复取消已取消的预约幂等 200 且 `alreadyCancelled:true`）
   - 409：`{code:"SCHEDULE_NOT_CANCELLABLE", statusNow:"published"|"conflict", resultVersionNo}`（已生效不能取消）；不存在 404
 - `GET  /api/editor/versions/:no/raw` — 指定版本快照**原文**（持编辑口令，不应用遮盖；恢复草稿亦用原文）
+- `POST /api/editor/routes` — 建立专题脉络路线；体含 `title`（专题标题）、`versionNo`（所据已发布版本）、`anchorEventIds`（≥2 个互异事件 id，按路线顺序）、`editor`、`note`
+  - 201：`{route:{routeNo, title, versionNo, anchors:[{position,eventId,title}], segments:[{position,fromEventId,toEventId,eventIds,relationIds}], events:[{eventId,role:"anchor"|"intermediate",anchorPosition,...}], relations:[...]}}`（冻结落库，不可变）
+  - 400：标题为空 / 锚点不足两个 / 事件 id 非整数 / 重复事件（`ROUTE_DUPLICATE_EVENTS`）；404：版本不存在；422：`{code:"ROUTE_INVALID", errors:[{type:"unknown_event"|"disconnected", segmentIndex, eventIds, message}]}`（未知事件或断点一次性列出）；均不保存
+- `GET  /api/editor/routes` — 路线清单（含锚点数 / 段数 / 所据版本）
+- `GET  /api/editor/routes/:no/raw` — 路线详情**原文**（持编辑口令，不应用遮盖）；不存在 404

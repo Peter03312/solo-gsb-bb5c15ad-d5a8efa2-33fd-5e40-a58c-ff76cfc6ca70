@@ -96,6 +96,44 @@
       <div id="redactMsg" style="margin-top:10px"></div>
     </div>
 
+    <div class="card">
+      <h2>专题「先于」脉络路线</h2>
+      <p class="muted">
+        从一份<b>已发布年表</b>中按顺序挑选至少两个互异事件作为锚点，填写专题标题，形成一条可公开的脉络路线。
+        相邻锚点必须在该版「先于」关系图中存在<b>有向路径</b>；每段展示一条<b>关系数最少</b>的见证链
+        （长度相同时按关系 ID 序列择小）。任何一段无法连通即<b>拒绝整条路线</b>并指出断点。
+        路线一经建立即固定所据版本、锚点顺序与见证链：之后修改草稿、恢复草稿或发布新版都不改变旧路线。
+        访客只看到路线涉及的事件与关系（出处按遮盖规则显示）；持口令在此查看原文。
+      </p>
+      <div class="row">
+        <div class="field" style="max-width:200px">
+          <label>所据版本</label>
+          <select id="routeVersion"></select>
+        </div>
+        <button id="btnRouteLoadEvents" type="button" class="secondary">加载该版事件</button>
+      </div>
+      <div id="routeEventPool" style="margin-top:8px"></div>
+      <div class="row" style="margin-top:8px">
+        <div class="field" style="max-width:280px">
+          <label>专题标题</label>
+          <input type="text" id="routeTitle" placeholder="如：东干渠建设脉络" />
+        </div>
+        <div class="field" style="max-width:280px">
+          <label>说明（可选）</label>
+          <input type="text" id="routeNote" placeholder="如：纪念日专题" />
+        </div>
+      </div>
+      <h3 style="margin-top:10px">锚点顺序（点击上方事件依次追加；至少两个互异事件）</h3>
+      <div id="routeAnchors"><p class="muted">尚未选择锚点。</p></div>
+      <div style="margin-top:8px">
+        <button id="btnRouteCreate" type="button">校验并建立路线</button>
+        <button id="btnRouteClear" type="button" class="secondary">清空锚点</button>
+      </div>
+      <div id="routeMsg" style="margin-top:10px"></div>
+      <h3 style="margin-top:14px">已建立路线</h3>
+      <div id="routeList" class="muted">加载中…</div>
+    </div>
+
     <div class="grid2">
       <section>
         <div class="card">
@@ -195,6 +233,17 @@
     <div class="d-foot">
       <button class="secondary" id="scheduleCancelDlg" type="button">取消预约（仅未执行）</button>
       <button id="scheduleClose" type="button">关闭</button>
+    </div>
+  </dialog>
+
+  <!-- 路线详情对话框（编辑者原文视图，不遮盖） -->
+  <dialog id="routeDialog">
+    <div class="d-head" style="background:#eef4fb;color:#245b96;border-color:#c2d4e8">
+      ⚑ 路线 <span id="routeDetailNo"></span> 详情（编辑者原文，访客视图按遮盖规则显示）
+    </div>
+    <div class="d-body" id="routeBody">加载中…</div>
+    <div class="d-foot">
+      <button id="routeClose" type="button">关闭</button>
     </div>
   </dialog>
 

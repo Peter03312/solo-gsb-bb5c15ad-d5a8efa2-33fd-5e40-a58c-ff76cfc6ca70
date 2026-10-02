@@ -18,6 +18,12 @@ const {
   listSchedules,
   cancelSchedule,
 } = require('./schedule');
+const {
+  createRoute,
+  getRouteDetail,
+  applyRedactionToRoute,
+  listRoutes,
+} = require('./route');
 const scheduler = require('./scheduler');
 
 const router = express.Router();
@@ -127,6 +133,20 @@ router.get('/api/public/versions/:no', (req, res) => {
   if (!detail) throw { status: 404, message: `版本 ${req.params.no} 不存在` };
   // 访客读取指定历史版本同样应用出处遮盖
   res.json({ version: applyRedactionToVersion(detail) });
+});
+
+// ---- 专题「先于」脉络路线（公开只读） ----
+// 只展示路线涉及的事件与关系；出处命中遮盖登记的位置显示「出处已遮盖」。
+router.get('/api/public/routes', (req, res) => {
+  res.json({ routes: listRoutes() });
+});
+
+router.get('/api/public/routes/:no', (req, res) => {
+  const no = Number(req.params.no);
+  if (!Number.isInteger(no) || no < 1) throw badRequest('路线号必须是正整数');
+  const detail = getRouteDetail(no);
+  if (!detail) throw { status: 404, message: `路线 ${req.params.no} 不存在` };
+  res.json({ route: applyRedactionToRoute(detail) });
 });
 
 // ================= 编辑者接口 =================
@@ -456,6 +476,36 @@ router.delete('/api/editor/schedules/:no', (req, res) => {
   if (!Number.isInteger(no) || no < 1) throw badRequest('预约号必须是正整数');
   const result = cancelSchedule(no);
   res.json({ ok: true, ...result });
+});
+
+// ---- 专题「先于」脉络路线：建立（冻结版本号/锚点顺序/见证链，不可变） ----
+// 体含 title（专题标题）、versionNo（所据已发布版本）、anchorEventIds（≥2 个互异事件，有序）、
+// editor、note。相邻锚点在该版关系图中无有向路径 → 422 并指出断点，整条不保存；
+// 未知版本 404；未知事件 422；重复事件 / 锚点不足两个等 400；均不保存。
+router.post('/api/editor/routes', (req, res) => {
+  const body = req.body || {};
+  const route = createRoute({
+    title: body.title,
+    versionNo: body.versionNo,
+    anchorEventIds: body.anchorEventIds,
+    editor: optionalString(body, 'editor', 200) || '匿名编辑',
+    note: optionalString(body, 'note', 1000),
+  });
+  res.status(201).json({ ok: true, route });
+});
+
+// 路线清单（编辑者视角，结构与公开一致）
+router.get('/api/editor/routes', (req, res) => {
+  res.json({ routes: listRoutes() });
+});
+
+// 路线详情原文（持编辑口令）：不应用出处遮盖，访客公开接口中命中处显示「出处已遮盖」
+router.get('/api/editor/routes/:no/raw', (req, res) => {
+  const no = Number(req.params.no);
+  if (!Number.isInteger(no) || no < 1) throw badRequest('路线号必须是正整数');
+  const detail = getRouteDetail(no);
+  if (!detail) throw { status: 404, message: `路线 ${req.params.no} 不存在` };
+  res.json({ route: detail });
 });
 
 module.exports = router;

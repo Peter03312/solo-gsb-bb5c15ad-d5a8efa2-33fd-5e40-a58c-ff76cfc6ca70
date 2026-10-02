@@ -57,9 +57,96 @@ async function main() {
             ${r.source ? `<div class="source"><b>出处：</b>${esc(r.source)}</div>` : ''}
           </div>`).join('')
       : '<p class="muted">本版未记录先于关系。</p>';
+
+    loadRoutes();
   } catch (err) {
     msg.innerHTML = `<div class="alert error">加载失败：${esc(err.message)}</div>`;
   }
 }
+
+// ---------- 专题脉络路线（公开只读，出处已按遮盖规则处理） ----------
+const CIRCLED = ['①', '②', '③', '④', '⑤', '⑥', '⑦', '⑧', '⑨', '⑩'];
+const anchorMark = (pos) => CIRCLED[pos] || `(${pos + 1})`;
+
+async function loadRoutes() {
+  try {
+    const res = await fetch('/api/public/routes');
+    const data = await res.json();
+    if (!data.routes || !data.routes.length) return;
+    $('#routesCard').style.display = '';
+    $('#routeList').innerHTML = data.routes.map((r) => `
+      <button class="secondary" type="button" data-open-route="${r.routeNo}" style="margin:0 8px 8px 0">
+        ⚑ ${esc(r.title)} <span class="muted">（路线 #${r.routeNo} · 据第 ${r.versionNo} 版 · ${r.anchorCount} 个锚点）</span>
+      </button>`).join('');
+  } catch { /* 路线加载失败不影响年表主体 */ }
+}
+
+async function openRoute(routeNo) {
+  const box = $('#routeDetail');
+  box.innerHTML = '<p class="muted">加载中…</p>';
+  try {
+    const res = await fetch(`/api/public/routes/${routeNo}`);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || `请求失败（${res.status}）`);
+    box.innerHTML = routeHtml(data.route);
+  } catch (err) {
+    box.innerHTML = `<div class="alert error">${esc(err.message)}</div>`;
+  }
+}
+
+function routeHtml(route) {
+  const evById = new Map(route.events.map((e) => [e.eventId, e]));
+  const relById = new Map(route.relations.map((r) => [r.relationId, r]));
+  const anchorLine = route.anchors
+    .map((a) => `<span class="badge prec">${anchorMark(a.position)} ${esc(a.title)}</span>`)
+    .join(' <span class="muted">→</span> ');
+
+  const eventNode = (eid) => {
+    const ev = evById.get(eid) || { title: `#${eid}`, role: 'intermediate' };
+    const roleBadge = ev.role === 'anchor'
+      ? `<span class="badge prec">锚点 ${anchorMark(ev.anchorPosition)}</span>`
+      : '<span class="badge">中间事件</span>';
+    return `
+      <div class="rel-line">
+        ${roleBadge} <strong>${esc(ev.title)}</strong>
+        ${ev.resolvedDate ? `<span class="muted">${esc(fmtDate(ev.resolvedDate))}</span>` : ''}
+        ${ev.dateLabel ? `<div class="muted">原始主张：${esc(ev.dateLabel)}（区间 ${esc(ev.intervalStart)} ~ ${esc(ev.intervalEnd)}）</div>` : ''}
+        ${ev.source ? `<div class="source"><b>出处：</b>${esc(ev.source)}</div>` : ''}
+      </div>`;
+  };
+
+  const segments = route.segments.map((s) => {
+    const parts = [];
+    s.eventIds.forEach((eid, i) => {
+      if (i > 0) {
+        const rel = relById.get(s.relationIds[i - 1]) || {};
+        parts.push(`
+          <div class="muted" style="padding-left:18px">
+            ↓ 先于（关系 #${s.relationIds[i - 1]}${rel.source ? `，出处：${esc(rel.source)}` : '，未注明出处'}）
+          </div>`);
+      }
+      parts.push(eventNode(eid));
+    });
+    return `
+      <div class="card" style="background:#fff;margin-bottom:8px">
+        <h3 style="font-size:13px">第 ${s.position + 1} 段：锚点 ${anchorMark(s.position)} → 锚点 ${anchorMark(s.position + 1)}
+          <span class="muted">（见证链含 ${s.relationIds.length} 条关系，为该版中最少）</span></h3>
+        ${parts.join('')}
+      </div>`;
+  }).join('');
+
+  return `
+    <h3 style="margin-top:14px">⚑ ${esc(route.title)} <span class="muted">（路线 #${route.routeNo}）</span></h3>
+    <p class="muted">据第 ${route.versionNo} 版年表 · 建立于 ${esc(route.createdAt)} UTC · 编辑：${esc(route.editor || '匿名')}${route.note ? ` · 说明：${esc(route.note)}` : ''}</p>
+    <p>${anchorLine}</p>
+    ${segments}`;
+}
+
+document.addEventListener('click', (e) => {
+  const t = e.target;
+  if (!(t instanceof HTMLElement)) return;
+  const open = t.dataset && t.dataset.openRoute;
+  if (open !== undefined) openRoute(Number(open));
+});
 
 main();

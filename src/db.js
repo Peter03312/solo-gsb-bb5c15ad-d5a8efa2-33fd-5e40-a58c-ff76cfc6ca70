@@ -171,6 +171,40 @@ CREATE TABLE IF NOT EXISTS publish_schedules (
 );
 CREATE INDEX IF NOT EXISTS idx_schedules_due
   ON publish_schedules(status, scheduled_at);
+
+-- ============ 专题「先于」脉络路线（不可变，只追加） ============
+-- 编辑者从一份已发布年表挑选至少两个互异事件作为锚点（有序），
+-- 相邻锚点之间必须在该版「先于」关系图中存在有向路径；
+-- 建立时即把所据版本号、锚点顺序与每段见证链（关系数最少、同长度按关系 ID
+-- 序列择小）整体冻结进下列各表。此后修改草稿、恢复草稿、发布新版都不改写旧路线。
+CREATE TABLE IF NOT EXISTS routes (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,   -- 路线号
+  title       TEXT NOT NULL,                       -- 专题标题
+  version_no  INTEGER NOT NULL,                    -- 所据已发布版本号
+  editor      TEXT NOT NULL DEFAULT '',
+  note        TEXT NOT NULL DEFAULT '',
+  created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS route_anchors (
+  id        INTEGER PRIMARY KEY AUTOINCREMENT,
+  route_id  INTEGER NOT NULL REFERENCES routes(id) ON DELETE CASCADE,
+  event_id  INTEGER NOT NULL,                      -- 该版快照中的事件 id
+  position  INTEGER NOT NULL                       -- 锚点顺序（0 起）
+);
+CREATE INDEX IF NOT EXISTS idx_route_anchors_route ON route_anchors(route_id);
+
+-- 每段见证链：连接 anchors[position] 与 anchors[position+1] 的最少有向路径
+CREATE TABLE IF NOT EXISTS route_segments (
+  id                INTEGER PRIMARY KEY AUTOINCREMENT,
+  route_id          INTEGER NOT NULL REFERENCES routes(id) ON DELETE CASCADE,
+  position          INTEGER NOT NULL,              -- 段序号（0 起）
+  from_event_id     INTEGER NOT NULL,
+  to_event_id       INTEGER NOT NULL,
+  event_ids_json    TEXT NOT NULL,                 -- 链上事件 id 序列（含两端锚点与中间事件）
+  relation_ids_json TEXT NOT NULL                  -- 链上关系 id 序列（该版快照 relation_id）
+);
+CREATE INDEX IF NOT EXISTS idx_route_segments_route ON route_segments(route_id);
 `;
 
 let db;

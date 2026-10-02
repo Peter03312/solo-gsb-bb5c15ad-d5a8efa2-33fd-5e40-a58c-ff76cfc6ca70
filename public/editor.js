@@ -36,6 +36,8 @@ let bundleParsed = null;   // 解析后的整理包原包（确认时原样提�
 let bundlePreview = null;  // 导入预览（确认时提交其中的指纹/草稿修订号）
 let redactPreview = null;  // 出处遮盖预览（确认时提交其中的最新版本号）
 let scheduleDetail = null; // 当前打开的预约详情
+let routeVersionEvents = []; // 路线编辑：当前加载的版本事件（点击追加为锚点）
+let routeAnchorIds = [];   // 路线编辑：已选锚点事件 id（有序）
 
 async function api(method, url, body) {
   const res = await fetch(url, {
@@ -193,10 +195,20 @@ async function loadState() {
   render();
   loadVersions();
   loadSchedules();
+  loadRoutes();
 }
 
 async function loadVersions() {
   const data = await api('GET', '/api/editor/versions');
+  // 路线编辑的版本下拉（默认选当前最新版）
+  const sel = $('#routeVersion');
+  if (sel) {
+    const keep = sel.value;
+    sel.innerHTML = data.versions.length
+      ? data.versions.map((v) => `<option value="${v.versionNo}">第 ${v.versionNo} 版</option>`).join('')
+      : '<option value="">（尚无已发布版本）</option>';
+    if (keep && data.versions.some((v) => String(v.versionNo) === keep)) sel.value = keep;
+  }
   $('#versionList').innerHTML = data.versions.length
     ? data.versions.map((v) => `
         <div class="rel-line">
@@ -875,6 +887,183 @@ async function cancelScheduleInline(no) {
   }
 }
 
+// ---------- 专题「先于」脉络路线 ----------
+const CIRCLED = ['①', '②', '③', '④', '⑤', '⑥', '⑦', '⑧', '⑨', '⑩'];
+const anchorMark = (pos) => CIRCLED[pos] || `(${pos + 1})`;
+
+function showRouteMsg(kind, html) {
+  $('#routeMsg').innerHTML = `<div class="alert ${kind}">${html}</div>`;
+}
+
+// 路线详情渲染（编辑者原文视图与访客视图共用的结构）：
+// 锚点顺序条 + 每段见证链（锚点与中间事件区分，只含路线涉及的事件与关系）。
+function routeDetailHtml(route) {
+  const evById = new Map(route.events.map((e) => [e.eventId, e]));
+  const relById = new Map(route.relations.map((r) => [r.relationId, r]));
+  const anchorLine = route.anchors
+    .map((a) => `<span class="badge prec">${anchorMark(a.position)} ${esc(a.title)}</span>`)
+    .join(' <span class="muted">→</span> ');
+
+  const eventNode = (eid) => {
+    const ev = evById.get(eid) || { title: `#${eid}`, role: 'intermediate' };
+    const roleBadge = ev.role === 'anchor'
+      ? `<span class="badge prec">锚点 ${anchorMark(ev.anchorPosition)}</span>`
+      : '<span class="badge">中间事件</span>';
+    return `
+      <div class="rel-line">
+        ${roleBadge} <strong>${esc(ev.title)}</strong>
+        ${ev.resolvedDate ? `<span class="muted">${esc(ev.resolvedDate)}</span>` : ''}
+        ${ev.dateLabel ? `<div class="muted">原始主张：${esc(ev.dateLabel)}（区间 ${esc(ev.intervalStart)} ~ ${esc(ev.intervalEnd)}）</div>` : ''}
+        ${ev.source ? `<div class="source"><b>出处：</b>${esc(ev.source)}</div>` : ''}
+      </div>`;
+  };
+
+  const segments = route.segments.map((s) => {
+    const parts = [];
+    s.eventIds.forEach((eid, i) => {
+      if (i > 0) {
+        const rel = relById.get(s.relationIds[i - 1]) || {};
+        parts.push(`
+          <div class="muted" style="padding-left:18px">
+            ↓ 先于（关系 #${s.relationIds[i - 1]}${rel.source ? `，出处：${esc(rel.source)}` : '，未注明出处'}）
+          </div>`);
+      }
+      parts.push(eventNode(eid));
+    });
+    return `
+      <div class="card" style="background:#fff;margin-bottom:8px">
+        <h3 style="font-size:13px">第 ${s.position + 1} 段：锚点 ${anchorMark(s.position)} → 锚点 ${anchorMark(s.position + 1)}
+          <span class="muted">（见证链含 ${s.relationIds.length} 条关系，为最少）</span></h3>
+        ${parts.join('')}
+      </div>`;
+  }).join('');
+
+  return `
+    <p class="muted">路线 #${route.routeNo} · 据第 ${route.versionNo} 版年表 · 建立于 ${esc(route.createdAt)} UTC ·
+      编辑者：${esc(route.editor || '匿名')}${route.note ? ` · 说明：${esc(route.note)}` : ''}<br>
+      路线已固定所据版本、锚点顺序与见证链；之后修改草稿、恢复草稿或发布新版均不改变本路线。</p>
+    <p>${anchorLine}</p>
+    ${segments}`;
+}
+
+async function loadRoutes() {
+  try {
+    const data = await api('GET', '/api/editor/routes');
+    renderRouteList(data.routes);
+  } catch (err) {
+    if (err.message !== 'unauthorized') $('#routeList').innerHTML = `<span class="muted">${esc(err.message)}</span>`;
+  }
+}
+
+function renderRouteList(routes) {
+  if (!routes.length) {
+    $('#routeList').innerHTML = '<p class="muted">尚无路线。</p>';
+    return;
+  }
+  $('#routeList').innerHTML = routes.map((r) => `
+    <div class="rel-line">
+      <div class="row" style="align-items:center">
+        <strong>#${r.routeNo} ${esc(r.title)}</strong>
+        <span class="badge">据第 ${r.versionNo} 版</span>
+        <span class="muted" style="flex:1">${r.anchorCount} 个锚点 · ${r.segmentCount} 段 · ${esc(r.createdAt)} UTC · ${esc(r.editor || '匿名')}</span>
+        <button class="secondary" type="button" data-view-route="${r.routeNo}" style="padding:2px 10px;font-size:13px">查看路线（原文）</button>
+        <a href="/api/public/routes/${r.routeNo}" target="_blank" style="font-size:13px">访客视角 JSON</a>
+      </div>
+      ${r.note ? `<div class="muted">说明：${esc(r.note)}</div>` : ''}
+    </div>`).join('');
+}
+
+async function loadRouteVersionEvents() {
+  const no = Number($('#routeVersion').value);
+  if (!no) { showRouteMsg('error', '请先发布一个版本，再从中挑选锚点事件。'); return; }
+  routeAnchorIds = [];
+  renderRouteAnchors();
+  try {
+    const data = await api('GET', `/api/editor/versions/${no}/raw`);
+    routeVersionEvents = data.version.events;
+    $('#routeEventPool').innerHTML = `
+      <p class="muted" style="margin:4px 0">第 ${no} 版事件（点击按顺序追加为锚点；事件 id 见括号）：</p>
+      ${routeVersionEvents.map((e) => `
+        <button class="secondary" type="button" data-add-anchor="${e.eventId}" style="margin:2px 4px 2px 0;padding:3px 10px;font-size:13px">
+          ＋ ${esc(e.title)} <span class="muted">(#${e.eventId} · ${esc(e.resolvedDate)})</span>
+        </button>`).join('')}`;
+    showRouteMsg('ok', `已加载第 ${no} 版共 ${routeVersionEvents.length} 个事件，请依次点击追加锚点。`);
+  } catch (err) {
+    if (err.message !== 'unauthorized') showRouteMsg('error', esc(err.message));
+  }
+}
+
+function renderRouteAnchors() {
+  if (!routeAnchorIds.length) {
+    $('#routeAnchors').innerHTML = '<p class="muted">尚未选择锚点。</p>';
+    return;
+  }
+  const titleOf = (id) => {
+    const ev = routeVersionEvents.find((e) => e.eventId === id);
+    return ev ? ev.title : `#${id}`;
+  };
+  $('#routeAnchors').innerHTML = routeAnchorIds.map((id, i) => `
+    <div class="rel-line">
+      <span class="badge prec">锚点 ${anchorMark(i)}</span>
+      <strong>${esc(titleOf(id))}</strong>
+      <span class="muted">(#${id})</span>
+      ${i < routeAnchorIds.length - 1 ? '<span class="muted">→ 须先于下一锚点（该版关系图中须有有向路径）</span>' : ''}
+      <button class="danger" type="button" data-remove-anchor="${i}" style="float:right;padding:2px 10px;font-size:13px">移除</button>
+    </div>`).join('');
+}
+
+async function createRouteFromUi() {
+  const title = $('#routeTitle').value.trim();
+  if (!title) { showRouteMsg('error', '请填写专题标题。'); return; }
+  const versionNo = Number($('#routeVersion').value);
+  if (!versionNo) { showRouteMsg('error', '请先选择所据版本。'); return; }
+  if (routeAnchorIds.length < 2) { showRouteMsg('error', '请至少选择两个互异的锚点事件。'); return; }
+  const btn = $('#btnRouteCreate');
+  btn.disabled = true;
+  try {
+    const data = await api('POST', '/api/editor/routes', {
+      title,
+      versionNo,
+      anchorEventIds: routeAnchorIds,
+      editor: store.editor || '匿名编辑',
+      note: $('#routeNote').value,
+    });
+    showRouteMsg('ok', `
+      已建立 <b>路线 #${data.route.routeNo}「${esc(data.route.title)}」</b>（据第 ${data.route.versionNo} 版，
+      ${data.route.anchors.length} 个锚点、${data.route.segments.length} 段见证链），内容已冻结、不可变。
+      之后修改草稿、恢复草稿或发布新版均不改变本路线。
+      <a href="/" target="_blank">打开访客年表查看</a>`);
+    $('#routeTitle').value = '';
+    $('#routeNote').value = '';
+    routeAnchorIds = [];
+    renderRouteAnchors();
+    await loadRoutes();
+  } catch (err) {
+    if (err.message === 'unauthorized') return;
+    if (err.status === 422 && err.body && Array.isArray(err.body.errors)) {
+      const items = err.body.errors.map((e2) => `<li>${esc(e2.message)}</li>`).join('');
+      showRouteMsg('error', `<b>${esc(err.body.message || '路线未保存')}</b><ul class="error-list">${items}</ul>`);
+    } else {
+      showRouteMsg('error', esc(err.message));
+    }
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function openRouteDetail(no) {
+  $('#routeDetailNo').textContent = '#' + no;
+  $('#routeBody').textContent = '加载中…';
+  $('#routeDialog').showModal();
+  try {
+    const data = await api('GET', `/api/editor/routes/${no}/raw`);
+    $('#routeBody').innerHTML = routeDetailHtml(data.route);
+  } catch (err) {
+    if (err.message === 'unauthorized') { $('#routeDialog').close(); return; }
+    $('#routeBody').innerHTML = `<div class="alert error">${esc(err.message)}</div>`;
+  }
+}
+
 // ---------- 事件委托：增删改 ----------
 async function onClick(e) {
   const t = e.target;
@@ -923,6 +1112,31 @@ async function onClick(e) {
   if (t.id === 'rawVersionClose') { $('#rawVersionDialog').close(); return; }
   const rawVersion = t.dataset && t.dataset.rawVersion;
   if (rawVersion !== undefined) return openRawVersion(Number(rawVersion));
+
+  // 专题脉络路线
+  if (t.id === 'btnRouteLoadEvents') return loadRouteVersionEvents();
+  if (t.id === 'btnRouteCreate') return createRouteFromUi();
+  if (t.id === 'btnRouteClear') { routeAnchorIds = []; renderRouteAnchors(); return; }
+  if (t.id === 'routeClose') { $('#routeDialog').close(); return; }
+  const addAnchor = t.dataset && t.dataset.addAnchor;
+  if (addAnchor !== undefined) {
+    const eid = Number(addAnchor);
+    if (routeAnchorIds.includes(eid)) {
+      showRouteMsg('error', '锚点事件必须互异：该事件已在路线中。');
+      return;
+    }
+    routeAnchorIds.push(eid);
+    renderRouteAnchors();
+    return;
+  }
+  const removeAnchor = t.dataset && t.dataset.removeAnchor;
+  if (removeAnchor !== undefined) {
+    routeAnchorIds.splice(Number(removeAnchor), 1);
+    renderRouteAnchors();
+    return;
+  }
+  const viewRoute = t.dataset && t.dataset.viewRoute;
+  if (viewRoute !== undefined) return openRouteDetail(Number(viewRoute));
 
   const addEvent = t.dataset && t.dataset.addEvent !== undefined;
   if (t.id === 'btnAddEvent') {
